@@ -149,7 +149,7 @@ listener, err := tls.Listen("tcp", ":8443", config)
 
 ## License
 
-MIT
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Disclaimer
 
