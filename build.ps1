@@ -2,20 +2,8 @@ param(
     [string]$Target = "all"
 )
 
-function Build-Sender {
-    Write-Host "Building Go sender..." -ForegroundColor Cyan
-    go build -tags sender -ldflags="-s -w" -o client/src/sender.exe client/src/sender.go
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "Sender built: client/src/sender.exe" -ForegroundColor Green
-    } else {
-        Write-Host "Sender build failed" -ForegroundColor Red
-        exit 1
-    }
-}
-
 function Build-Client {
-    Build-Sender
-    Write-Host "Building Rust client with embedded sender..." -ForegroundColor Cyan
+    Write-Host "Building Rust client..." -ForegroundColor Cyan
     Push-Location client
     cargo build --release
     $exitCode = $LASTEXITCODE

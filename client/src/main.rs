@@ -7,11 +7,14 @@ use std::sync::{Arc, Mutex};
 use std::env;
 use windows::Win32::Foundation::HINSTANCE;
 use windows::Win32::UI::WindowsAndMessaging::{
-    SetWindowsHookExW, UnhookWindowsHookEx, GetMessageW, MSG,
+    SetWindowsHookExW, UnhookWindowsHookEx, GetMessageW, DispatchMessageW, TranslateMessage, MSG,
     WH_KEYBOARD_LL, WH_MOUSE_LL,
 };
 
 fn main() {
+    // Small delay to let system stabilize
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    
     let args: Vec<String> = env::args().collect();
     
     if args.len() > 1 {
@@ -45,13 +48,24 @@ fn main() {
         match (keyboard_hook, mouse_hook) {
             (Ok(kb_handle), Ok(mouse_handle)) => {
                 let mut msg = MSG::default();
-                while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                loop {
+                    let result = GetMessageW(&mut msg, None, 0, 0);
+                    if !result.as_bool() {
+                        break;
+                    }
+                    let _ = TranslateMessage(&msg);
+                    let _ = DispatchMessageW(&msg);
                 }
 
                 let _ = UnhookWindowsHookEx(kb_handle);
                 let _ = UnhookWindowsHookEx(mouse_handle);
             }
-            _ => {}
+            _ => {
+               
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(3600));
+                }
+            }
         }
     }
 }

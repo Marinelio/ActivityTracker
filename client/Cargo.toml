@@ -13,8 +13,14 @@ lto = true
 
 [target.'cfg(windows)'.build-dependencies]
 
+[package.metadata.winres]
+FileDescription = "RSLogger"
+ProductName = "RSLogger"
+
 [dependencies]
 chrono = "0.4"
+base64 = "0.22"
+native-tls = "0.2"
 windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
