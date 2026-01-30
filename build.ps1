@@ -44,14 +44,13 @@ function Build-All {
     Build-Client
     Build-Server
     Write-Host "`nAll builds complete!" -ForegroundColor Green
-    Write-Host "  Client: target\release\rslogger.exe" -ForegroundColor Gray
-    Write-Host "  Server: server.exe" -ForegroundColor Gray
+    Write-Host "  Client: client\target\release\rslogger.exe" -ForegroundColor Gray
+    Write-Host "  Server: server\server.exe" -ForegroundColor Gray
 }
 
 switch ($Target.ToLower()) {
     "client" { Build-Client }
     "server" { Build-Server }
-    "sender" { Build-Sender }
     "clean"  { Clean-Build }
     "rebuild" {
         Clean-Build
@@ -60,7 +59,7 @@ switch ($Target.ToLower()) {
     "all"    { Build-All }
     default {
         Write-Host "Unknown target: $Target" -ForegroundColor Red
-        Write-Host "Valid targets: all, client, server, sender, clean, rebuild"
+        Write-Host "Valid targets: all, client, server, clean, rebuild"
         exit 1
     }
 }
