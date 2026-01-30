@@ -140,7 +140,7 @@ Pass interval in seconds as the second argument:
 ### Change Port
 Edit `src/server.go`:
 ```go
-listener, err := tls.Listen("tcp", ":25557", config)
+listener, err := tls.Listen("tcp", ":8443", config)
 ```
 
 ## How it works
